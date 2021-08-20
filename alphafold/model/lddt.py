@@ -15,6 +15,8 @@
 """lDDT protein distance score."""
 import jax.numpy as jnp
 
+DTYPE=jnp.bfloat16
+
 
 def lddt(predicted_points,
          true_points,
@@ -65,7 +67,7 @@ def lddt(predicted_points,
        predicted_points[:, None, :])**2, axis=-1))
 
   dists_to_score = (
-      (dmat_true < cutoff).astype(jnp.float32) * true_points_mask *
+      (dmat_true < cutoff).astype(DTYPE) * true_points_mask *
       jnp.transpose(true_points_mask, [0, 2, 1]) *
       (1. - jnp.eye(dmat_true.shape[1]))  # Exclude self-interaction.
   )
@@ -75,10 +77,10 @@ def lddt(predicted_points,
 
   # True lDDT uses a number of fixed bins.
   # We ignore the physical plausibility correction to lDDT, though.
-  score = 0.25 * ((dist_l1 < 0.5).astype(jnp.float32) +
-                  (dist_l1 < 1.0).astype(jnp.float32) +
-                  (dist_l1 < 2.0).astype(jnp.float32) +
-                  (dist_l1 < 4.0).astype(jnp.float32))
+  score = 0.25 * ((dist_l1 < 0.5).astype(DTYPE) +
+                  (dist_l1 < 1.0).astype(DTYPE) +
+                  (dist_l1 < 2.0).astype(DTYPE) +
+                  (dist_l1 < 4.0).astype(DTYPE))
 
   # Normalize over the appropriate axes.
   reduce_axes = (-1,) if per_residue else (-2, -1)
