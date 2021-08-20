@@ -26,6 +26,8 @@ import numpy as np
 import tensorflow.compat.v1 as tf
 import tree
 
+DTYPE=jax.numpy.bfloat16
+
 
 def get_confidence_metrics(
     prediction_result: Mapping[str, Any]) -> Mapping[str, Any]:
@@ -50,17 +52,19 @@ class RunModel:
 
   def __init__(self,
                config: ml_collections.ConfigDict,
-               params: Optional[Mapping[str, Mapping[str, np.ndarray]]] = None):
+               params: Optional[Mapping[str, Mapping[str, np.ndarray]]] = None,
+               is_training=False,
+               ensemble_representations=False):
     self.config = config
-    self.params = params
+    self.params = jax.tree_util.tree_map(lambda y: y.astype(DTYPE), params)
 
     def _forward_fn(batch):
       model = modules.AlphaFold(self.config.model)
       return model(
           batch,
-          is_training=False,
+          is_training=is_training,
           compute_loss=False,
-          ensemble_representations=True)
+          ensemble_representations=ensemble_representations)
 
     self.apply = jax.jit(hk.transform(_forward_fn).apply)
     self.init = jax.jit(hk.transform(_forward_fn).init)
@@ -80,8 +84,7 @@ class RunModel:
     if not self.params:
       # Init params randomly.
       rng = jax.random.PRNGKey(random_seed)
-      self.params = hk.data_structures.to_mutable_dict(
-          self.init(rng, feat))
+      self.params = hk.data_structures.to_mutable_dict(self.init(rng, feat))
       logging.warning('Initialized parameters randomly')
 
   def process_features(
@@ -127,14 +130,19 @@ class RunModel:
     Returns:
       A dictionary of model outputs.
     """
+    feat = jax.tree_util.tree_map(lambda y: y.astype(DTYPE), feat)
+
     self.init_params(feat)
     logging.info('Running predict with shape(feat) = %s',
                  tree.map_structure(lambda x: x.shape, feat))
+    
     result = self.apply(self.params, jax.random.PRNGKey(0), feat)
+    
     # This block is to ensure benchmark timings are accurate. Some blocking is
     # already happening when computing get_confidence_metrics, and this ensures
     # all outputs are blocked on.
-    jax.tree_map(lambda x: x.block_until_ready(), result)
+    # jax.tree_map(lambda x: x.block_until_ready(), result)
+
     result.update(get_confidence_metrics(result))
     logging.info('Output shape was %s',
                  tree.map_structure(lambda x: x.shape, result))
