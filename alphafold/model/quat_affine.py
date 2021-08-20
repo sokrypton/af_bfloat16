@@ -39,6 +39,8 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
+DTYPE=jnp.bfloat16
+
 # pylint: disable=bad-whitespace
 QUAT_TO_ROT = np.zeros((4, 4, 3, 3), dtype=np.float32)
 
@@ -77,6 +79,12 @@ QUAT_MULTIPLY[:, :, 3] = [[ 0, 0, 0, 1],
                           [ 1, 0, 0, 0]]
 
 QUAT_MULTIPLY_BY_VEC = QUAT_MULTIPLY[:, 1:, :]
+
+QUAT_TO_ROT = jnp.asarray(QUAT_TO_ROT,dtype=DTYPE)
+QUAT_MULTIPLY = jnp.asarray(QUAT_MULTIPLY,dtype=DTYPE)
+QUAT_MULTIPLY_BY_VEC = jnp.asarray(QUAT_MULTIPLY_BY_VEC,dtype=DTYPE)
+
+
 # pylint: enable=bad-whitespace
 
 
@@ -131,7 +139,7 @@ def vec_list_to_tensor(vec_list):
 def quat_to_rot(normalized_quat):
   """Convert a normalized quaternion to a rotation matrix."""
   rot_tensor = jnp.sum(
-      np.reshape(QUAT_TO_ROT, (4, 4, 9)) *
+      jnp.reshape(QUAT_TO_ROT, (4, 4, 9)) *
       normalized_quat[..., :, None, None] *
       normalized_quat[..., None, :, None],
       axis=(-3, -2))
