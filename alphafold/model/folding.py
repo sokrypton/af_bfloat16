@@ -29,6 +29,8 @@ import jax.numpy as jnp
 import ml_collections
 import numpy as np
 
+DTYPE=jnp.bfloat16
+
 
 def squared_difference(x, y):
   return jnp.square(x - y)
@@ -223,12 +225,12 @@ class InvariantPointAttention(hk.Module):
     # [num_head, num_query_residues, num_head * num_scalar_v]
     result_scalar = jnp.matmul(attn, v)
 
-    # For point result, implement matmul manually so that it will be a float32
+    # For point result, implement matmul manually so that it will be a DTYPE
     # on TPU.  This is equivalent to
     # result_point_global = [jnp.einsum('bhqk,bhkc->bhqc', attn, vx)
     #                        for vx in v_point]
     # but on the TPU, doing the multiply and reduce_sum ensures the
-    # computation happens in float32 instead of bfloat16.
+    # computation happens in DTYPE instead of bfloat16.
     result_point_global = [jnp.sum(
         attn[:, :, :, None] * vx[:, None, :, :],
         axis=-2) for vx in v_point]
@@ -649,7 +651,7 @@ def backbone_loss(ret, batch, value, config):
 
   if 'use_clamped_fape' in batch:
     # Jumper et al. (2021) Suppl. Sec. 1.11.5 "Loss clamping details"
-    use_clamped_fape = jnp.asarray(batch['use_clamped_fape'], jnp.float32)
+    use_clamped_fape = jnp.asarray(batch['use_clamped_fape'], DTYPE)
     unclamped_fape_loss_fn = functools.partial(
         all_atom.frame_aligned_point_error,
         l1_clamp_distance=None,
@@ -720,7 +722,7 @@ def structural_violation_loss(ret, batch, value, config):
 
   # Put all violation losses together to one large loss.
   violations = value['violations']
-  num_atoms = jnp.sum(batch['atom14_atom_exists']).astype(jnp.float32)
+  num_atoms = jnp.sum(batch['atom14_atom_exists']).astype(DTYPE)
   ret['loss'] += (config.structural_violation_loss_weight * (
       violations['between_residues']['bonds_c_n_loss_mean'] +
       violations['between_residues']['angles_ca_c_n_loss_mean'] +
@@ -741,8 +743,8 @@ def find_structural_violations(
   # Compute between residue backbone violations of bonds and angles.
   connection_violations = all_atom.between_residue_bond_loss(
       pred_atom_positions=atom14_pred_positions,
-      pred_atom_mask=batch['atom14_atom_exists'].astype(jnp.float32),
-      residue_index=batch['residue_index'].astype(jnp.float32),
+      pred_atom_mask=batch['atom14_atom_exists'].astype(DTYPE),
+      residue_index=batch['residue_index'].astype(DTYPE),
       aatype=batch['aatype'],
       tolerance_factor_soft=config.violation_tolerance_factor,
       tolerance_factor_hard=config.violation_tolerance_factor)
@@ -829,8 +831,8 @@ def compute_violation_metrics(
   ret = {}
   extreme_ca_ca_violations = all_atom.extreme_ca_ca_distance_violations(
       pred_atom_positions=atom14_pred_positions,
-      pred_atom_mask=batch['atom14_atom_exists'].astype(jnp.float32),
-      residue_index=batch['residue_index'].astype(jnp.float32))
+      pred_atom_mask=batch['atom14_atom_exists'].astype(DTYPE),
+      residue_index=batch['residue_index'].astype(DTYPE))
   ret['violations_extreme_ca_ca_distance'] = extreme_ca_ca_violations
   ret['violations_between_residue_bond'] = utils.mask_mean(
       mask=batch['seq_mask'],
@@ -871,14 +873,14 @@ def supervised_chi_loss(ret, batch, value, config):
 
   sequence_mask = batch['seq_mask']
   num_res = sequence_mask.shape[0]
-  chi_mask = batch['chi_mask'].astype(jnp.float32)
+  chi_mask = batch['chi_mask'].astype(DTYPE)
   pred_angles = jnp.reshape(
       value['sidechains']['angles_sin_cos'], [-1, num_res, 7, 2])
   pred_angles = pred_angles[:, :, 3:]
 
   residue_type_one_hot = jax.nn.one_hot(
       batch['aatype'], residue_constants.restype_num + 1,
-      dtype=jnp.float32)[None]
+      dtype=DTYPE)[None]
   chi_pi_periodic = jnp.einsum('ijk, kl->ijl', residue_type_one_hot,
                                jnp.asarray(residue_constants.chi_pi_periodic))
 
@@ -917,7 +919,7 @@ def generate_new_affine(sequence_mask):
       jnp.reshape(jnp.asarray([1., 0., 0., 0.]), [1, 4]),
       [num_residues, 1])
 
-  translation = jnp.zeros([num_residues, 3])
+  translation = jnp.zeros([num_residues, 3],dtype=DTYPE)
   return quat_affine.QuatAffine(quaternion, translation, unstack_inputs=True)
 
 
