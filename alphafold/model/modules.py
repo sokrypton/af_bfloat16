@@ -313,9 +313,9 @@ class AlphaFold(hk.Module):
 
     def get_prev(ret):
       new_prev = {
-          'prev_pos': ret['structure_module']['final_atom_positions'].astype(DTYPE),
-          'prev_msa_first_row': ret['representations']['msa_first_row'].astype(DTYPE),
-          'prev_pair': ret['representations']['pair'].astype(DTYPE),
+          'prev_pos': ret['structure_module']['final_atom_positions'],
+          'prev_msa_first_row': ret['representations']['msa_first_row'],
+          'prev_pair': ret['representations']['pair'],
       }
       return jax.tree_map(jax.lax.stop_gradient, new_prev)
 
