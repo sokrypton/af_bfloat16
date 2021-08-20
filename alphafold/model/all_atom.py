@@ -42,6 +42,8 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
+DTYPE=jnp.bfloat16
+
 
 def squared_difference(x, y):
   return jnp.square(x - y)
@@ -211,10 +213,10 @@ def atom37_to_frames(
 
   # Compute a mask whether ground truth exists for the group
   gt_atoms_exist = utils.batched_gather(  # shape (N, 8, 3)
-      all_atom_mask.astype(jnp.float32),
+      all_atom_mask.astype(DTYPE),
       residx_rigidgroup_base_atom37_idx,
       batch_dims=1)
-  gt_exists = jnp.min(gt_atoms_exist, axis=-1) * group_exists  # (N, 8)
+  gt_exists = jnp.min(gt_atoms_exist, axis=-1) * jnp.asarray(group_exists, dtype=DTYPE)  # (N, 8)
 
   # Adapt backbone frame to old convention (mirror x-axis and z-axis).
   rots = np.tile(np.eye(3, dtype=np.float32), [8, 1, 1])
@@ -259,12 +261,11 @@ def atom37_to_frames(
                                      aatype_in_shape + (8, 12,))
 
   return {
-      'rigidgroups_gt_frames': gt_frames_flat12,  # (..., 8, 12)
-      'rigidgroups_gt_exists': gt_exists,  # (..., 8)
-      'rigidgroups_group_exists': group_exists,  # (..., 8)
-      'rigidgroups_group_is_ambiguous':
-          residx_rigidgroup_is_ambiguous,  # (..., 8)
-      'rigidgroups_alt_gt_frames': alt_gt_frames_flat12,  # (..., 8, 12)
+      'rigidgroups_gt_frames': jnp.asarray(gt_frames_flat12,dtype=DTYPE),  # (..., 8, 12)
+      'rigidgroups_gt_exists': jnp.asarray(gt_exists,dtype=DTYPE),  # (..., 8)
+      'rigidgroups_group_exists': jnp.asarray(group_exists,dtype=DTYPE),  # (..., 8)
+      'rigidgroups_group_is_ambiguous': jnp.asarray(residx_rigidgroup_is_ambiguous,dtype=DTYPE),  # (..., 8)
+      'rigidgroups_alt_gt_frames': jnp.asarray(alt_gt_frames_flat12,dtype=DTYPE),  # (..., 8, 12)
   }
 
 
@@ -303,10 +304,10 @@ def atom37_to_torsion_angles(
   # Compute the backbone angles.
   num_batch, num_res = aatype.shape
 
-  pad = jnp.zeros([num_batch, 1, 37, 3], jnp.float32)
+  pad = jnp.zeros([num_batch, 1, 37, 3], DTYPE)
   prev_all_atom_pos = jnp.concatenate([pad, all_atom_pos[:, :-1, :, :]], axis=1)
 
-  pad = jnp.zeros([num_batch, 1, 37], jnp.float32)
+  pad = jnp.zeros([num_batch, 1, 37], DTYPE)
   prev_all_atom_mask = jnp.concatenate([pad, all_atom_mask[:, :-1, :]], axis=1)
 
   # For each torsion angle collect the 4 atom positions that define this angle.
@@ -365,7 +366,7 @@ def atom37_to_torsion_angles(
       batch_dims=2)
   # Check if all 4 chi angle atoms were set. Shape: [batch, num_res, chis=4].
   chi_angle_atoms_mask = jnp.prod(chi_angle_atoms_mask, axis=[-1])
-  chis_mask = chis_mask * (chi_angle_atoms_mask).astype(jnp.float32)
+  chis_mask = chis_mask * (chi_angle_atoms_mask).astype(DTYPE)
 
   # Stack all torsion angle atom positions.
   # Shape (B, N, torsions=7, atoms=4, xyz=3)
@@ -596,8 +597,7 @@ def extreme_ca_ca_distance_violations(
   this_ca_mask = pred_atom_mask[:-1, 1]         # (N - 1)
   next_ca_pos = pred_atom_positions[1:, 1, :]  # (N - 1, 3)
   next_ca_mask = pred_atom_mask[1:, 1]  # (N - 1)
-  has_no_gap_mask = ((residue_index[1:] - residue_index[:-1]) == 1.0).astype(
-      jnp.float32)
+  has_no_gap_mask = ((residue_index[1:] - residue_index[:-1]) == 1.0).astype(DTYPE)
   ca_ca_distance = jnp.sqrt(
       1e-6 + jnp.sum(squared_difference(this_ca_pos, next_ca_pos), axis=-1))
   violations = (ca_ca_distance -
@@ -656,8 +656,7 @@ def between_residue_bond_loss(
   next_n_mask = pred_atom_mask[1:, 0]           # (N - 1)
   next_ca_pos = pred_atom_positions[1:, 1, :]   # (N - 1, 3)
   next_ca_mask = pred_atom_mask[1:, 1]          # (N - 1)
-  has_no_gap_mask = ((residue_index[1:] - residue_index[:-1]) == 1.0).astype(
-      jnp.float32)
+  has_no_gap_mask = ((residue_index[1:] - residue_index[:-1]) == 1.0).astype(DTYPE)
 
   # Compute loss for the C--N bond.
   c_n_bond_length = jnp.sqrt(
@@ -665,7 +664,7 @@ def between_residue_bond_loss(
 
   # The C-N bond to proline has slightly different length because of the ring.
   next_is_proline = (
-      aatype[1:] == residue_constants.resname_to_idx['PRO']).astype(jnp.float32)
+      aatype[1:] == residue_constants.resname_to_idx['PRO']).astype(DTYPE)
   gt_length = (
       (1. - next_is_proline) * residue_constants.between_res_bond_length_c_n[0]
       + next_is_proline * residue_constants.between_res_bond_length_c_n[1])
@@ -1005,7 +1004,7 @@ def find_optimal_renaming(
 
   # Decide for each residue, whether alternative naming is better.
   # shape (N)
-  alt_naming_is_better = (alt_per_res_lddt < per_res_lddt).astype(jnp.float32)
+  alt_naming_is_better = (alt_per_res_lddt < per_res_lddt).astype(DTYPE)
 
   return alt_naming_is_better  # shape (N)
 
