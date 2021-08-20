@@ -496,7 +496,7 @@ class Transition(hk.Module):
       is_training: Whether the module is in training mode.
 
     Returns:
-      A float32 tensor of size [batch_size, N_res, N_channel].
+      A DTYPE tensor of size [batch_size, N_res, N_channel].
     """
     _, _, nc = act.shape
 
@@ -558,7 +558,7 @@ class Attention(hk.Module):
       nonbatched_bias: Shared bias, shape [N_queries, N_keys].
 
     Returns:
-      A float32 tensor of shape [batch_size, N_queries, output_dim].
+      A DTYPE tensor of shape [batch_size, N_queries, output_dim].
     """
     # Sensible default for when the config keys are missing
     key_dim = self.config.get('key_dim', int(q_data.shape[-1]))
@@ -648,7 +648,7 @@ class GlobalAttention(hk.Module):
       bias: A bias for the attention.
 
     Returns:
-      A float32 tensor of size [batch_size, N_queries, output_dim].
+      A DTYPE tensor of size [batch_size, N_queries, output_dim].
     """
     # Sensible default for when the config keys are missing
     key_dim = self.config.get('key_dim', int(q_data.shape[-1]))
@@ -1071,7 +1071,7 @@ class PredictedLDDTHead(hk.Module):
         # Shape (batch_size, num_res, 3)
         true_points=true_all_atom_pos[None, :, 1, :],
         # Shape (batch_size, num_res, 1)
-        true_points_mask=all_atom_mask[None, :, 1:2].astype(jnp.float32),
+        true_points_mask=all_atom_mask[None, :, 1:2].astype(DTYPE),
         cutoff=15.,
         per_residue=True)[0]
     lddt_ca = jax.lax.stop_gradient(lddt_ca)
@@ -1089,14 +1089,14 @@ class PredictedLDDTHead(hk.Module):
 
     # Shape (num_res,)
     mask_ca = all_atom_mask[:, residue_constants.atom_order['CA']]
-    mask_ca = mask_ca.astype(jnp.float32)
+    mask_ca = mask_ca.astype(DTYPE)
     loss = jnp.sum(errors * mask_ca) / (jnp.sum(mask_ca) + 1e-8)
 
     if self.config.filter_by_resolution:
       # NMR & distillation have resolution = 0
       loss *= ((batch['resolution'] >= self.config.min_resolution)
                & (batch['resolution'] <= self.config.max_resolution)).astype(
-                   jnp.float32)
+                   DTYPE)
 
     output = {'loss': loss}
     return output
@@ -1186,7 +1186,7 @@ class PredictedAlignedErrorHead(hk.Module):
       # NMR & distillation have resolution = 0
       loss *= ((batch['resolution'] >= self.config.min_resolution)
                & (batch['resolution'] <= self.config.max_resolution)).astype(
-                   jnp.float32)
+                   DTYPE)
 
     output = {'loss': loss}
     return output
@@ -1234,7 +1234,7 @@ class ExperimentallyResolvedHead(hk.Module):
     atom_exists = batch['atom37_atom_exists']
     # Is the atom resolved in the experiment? Subset of atom_exists,
     # *except for OXT*
-    all_atom_mask = batch['all_atom_mask'].astype(jnp.float32)
+    all_atom_mask = batch['all_atom_mask'].astype(DTYPE)
 
     xent = sigmoid_cross_entropy(labels=all_atom_mask, logits=logits)
     loss = jnp.sum(xent * atom_exists) / (1e-8 + jnp.sum(atom_exists))
@@ -1243,7 +1243,7 @@ class ExperimentallyResolvedHead(hk.Module):
       # NMR & distillation examples have resolution = 0.
       loss *= ((batch['resolution'] >= self.config.min_resolution)
                & (batch['resolution'] <= self.config.max_resolution)).astype(
-                   jnp.float32)
+                   DTYPE)
 
     output = {'loss': loss}
     return output
@@ -1546,7 +1546,7 @@ def pseudo_beta_fn(aatype, all_atom_positions, all_atom_masks):
   if all_atom_masks is not None:
     pseudo_beta_mask = jnp.where(
         is_gly, all_atom_masks[..., ca_idx], all_atom_masks[..., cb_idx])
-    pseudo_beta_mask = pseudo_beta_mask.astype(jnp.float32)
+    pseudo_beta_mask = pseudo_beta_mask.astype(DTYPE)
     return pseudo_beta, pseudo_beta_mask
   else:
     return pseudo_beta
