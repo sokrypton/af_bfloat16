@@ -31,6 +31,8 @@ import haiku as hk
 import jax
 import jax.numpy as jnp
 
+DTYPE=jnp.bfloat16
+
 
 def softmax_cross_entropy(logits, labels):
   """Computes softmax cross entropy given logits and one-hot class labels."""
@@ -113,7 +115,7 @@ def create_extra_msa_feature(batch):
     Concatenated tensor of extra MSA features.
   """
   # 23 = 20 amino acids + 'X' for unknown + gap + bert mask
-  msa_1hot = jax.nn.one_hot(batch['extra_msa'], 23)
+  msa_1hot = jax.nn.one_hot(batch['extra_msa'], 23, dtype=DTYPE)
   msa_feat = [msa_1hot,
               jnp.expand_dims(batch['extra_has_deletion'], axis=-1),
               jnp.expand_dims(batch['extra_deletion_value'], axis=-1)]
@@ -345,11 +347,11 @@ class AlphaFold(hk.Module):
       emb_config = self.config.embeddings_and_evoformer
       prev = {
           'prev_pos': jnp.zeros(
-              [num_residues, residue_constants.atom_type_num, 3]),
+              [num_residues, residue_constants.atom_type_num, 3], dtype=DTYPE),
           'prev_msa_first_row': jnp.zeros(
-              [num_residues, emb_config.msa_channel]),
+              [num_residues, emb_config.msa_channel], dtype=DTYPE),
           'prev_pair': jnp.zeros(
-              [num_residues, num_residues, emb_config.pair_channel]),
+              [num_residues, num_residues, emb_config.pair_channel], dtype=DTYPE),
       }
 
       if 'num_iter_recycling' in batch:
@@ -989,7 +991,7 @@ class MaskedMsaHead(hk.Module):
 
   def loss(self, value, batch):
     errors = softmax_cross_entropy(
-        labels=jax.nn.one_hot(batch['true_msa'], num_classes=23),
+        labels=jax.nn.one_hot(batch['true_msa'], num_classes=23, dtype=DTYPE),
         logits=value['logits'])
     loss = (jnp.sum(errors * batch['bert_mask'], axis=(-2, -1)) /
             (1e-8 + jnp.sum(batch['bert_mask'], axis=(-2, -1))))
@@ -1079,7 +1081,7 @@ class PredictedLDDTHead(hk.Module):
 
     # protect against out of range for lddt_ca == 1
     bin_index = jnp.minimum(bin_index, num_bins - 1)
-    lddt_ca_one_hot = jax.nn.one_hot(bin_index, num_classes=num_bins)
+    lddt_ca_one_hot = jax.nn.one_hot(bin_index, num_classes=num_bins, dtype=DTYPE)
 
     # Shape (num_res, num_channel)
     logits = value['predicted_lddt']['logits']
@@ -1175,7 +1177,7 @@ class PredictedAlignedErrorHead(hk.Module):
         error_dist2[..., None] > sq_breaks).astype(jnp.int32), axis=-1)
 
     errors = softmax_cross_entropy(
-        labels=jax.nn.one_hot(true_bins, num_bins, axis=-1), logits=logits)
+        labels=jax.nn.one_hot(true_bins, num_bins, axis=-1, dtype=DTYPE), logits=logits)
 
     loss = (jnp.sum(errors * square_mask, axis=(-2, -1)) /
             (1e-8 + jnp.sum(square_mask, axis=(-2, -1))))
@@ -1400,7 +1402,7 @@ def _distogram_log_loss(logits, bin_edges, batch, num_bins):
   true_bins = jnp.sum(dist2 > sq_breaks, axis=-1)
 
   errors = softmax_cross_entropy(
-      labels=jax.nn.one_hot(true_bins, num_bins), logits=logits)
+      labels=jax.nn.one_hot(true_bins, num_bins, dtype=DTYPE), logits=logits)
 
   square_mask = jnp.expand_dims(mask, axis=-2) * jnp.expand_dims(mask, axis=-1)
 
@@ -1518,15 +1520,15 @@ def dgram_from_positions(positions, num_bins, min_bin, max_bin):
   lower_breaks = jnp.linspace(min_bin, max_bin, num_bins)
   lower_breaks = jnp.square(lower_breaks)
   upper_breaks = jnp.concatenate([lower_breaks[1:],
-                                  jnp.array([1e8], dtype=jnp.float32)], axis=-1)
+                                  jnp.array([1e8], dtype=DTYPE)], axis=-1)
   dist2 = jnp.sum(
       squared_difference(
           jnp.expand_dims(positions, axis=-2),
           jnp.expand_dims(positions, axis=-3)),
       axis=-1, keepdims=True)
 
-  dgram = ((dist2 > lower_breaks).astype(jnp.float32) *
-           (dist2 < upper_breaks).astype(jnp.float32))
+  dgram = ((dist2 > lower_breaks).astype(DTYPE) *
+           (dist2 < upper_breaks).astype(DTYPE))
   return dgram
 
 
@@ -1752,7 +1754,7 @@ class EmbeddingsAndEvoformer(hk.Module):
               offset + c.max_relative_feature,
               a_min=0,
               a_max=2 * c.max_relative_feature),
-          2 * c.max_relative_feature + 1)
+          2 * c.max_relative_feature + 1, dtype=DTYPE)
       pair_activations += common_modules.Linear(
           c.pair_channel, name='pair_activiations')(
               rel_pos)
@@ -1824,7 +1826,7 @@ class EmbeddingsAndEvoformer(hk.Module):
       num_templ, num_res = batch['template_aatype'].shape
 
       # Embed the templates aatypes.
-      aatype_one_hot = jax.nn.one_hot(batch['template_aatype'], 22, axis=-1)
+      aatype_one_hot = jax.nn.one_hot(batch['template_aatype'], 22, axis=-1, dtype=DTYPE)
 
       # Embed the templates aatype, torsion angles and masks.
       # Shape (templates, residues, msa_channels)
@@ -1949,7 +1951,7 @@ class SingleTemplateEmbedding(hk.Module):
 
     to_concat = [template_dgram, template_mask_2d[:, :, None]]
 
-    aatype = jax.nn.one_hot(batch['template_aatype'], 22, axis=-1, dtype=dtype)
+    aatype = jax.nn.one_hot(batch['template_aatype'], 22, axis=-1, dtype=DTYPE)
 
     to_concat.append(jnp.tile(aatype[None, :, :], [num_res, 1, 1]))
     to_concat.append(jnp.tile(aatype[:, None, :], [1, num_res, 1]))
