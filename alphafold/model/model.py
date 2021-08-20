@@ -130,7 +130,6 @@ class RunModel:
     Returns:
       A dictionary of model outputs.
     """
-    feat = jax.tree_util.tree_map(lambda y: y.astype(DTYPE), feat)
 
     self.init_params(feat)
     logging.info('Running predict with shape(feat) = %s',
