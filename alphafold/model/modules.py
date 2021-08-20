@@ -313,10 +313,9 @@ class AlphaFold(hk.Module):
 
     def get_prev(ret):
       new_prev = {
-          'prev_pos':
-              ret['structure_module']['final_atom_positions'],
-          'prev_msa_first_row': ret['representations']['msa_first_row'],
-          'prev_pair': ret['representations']['pair'],
+          'prev_pos': ret['structure_module']['final_atom_positions'].astype(DTYPE),
+          'prev_msa_first_row': ret['representations']['msa_first_row'].astype(DTYPE),
+          'prev_pair': ret['representations']['pair'].astype(DTYPE),
       }
       return jax.tree_map(jax.lax.stop_gradient, new_prev)
 
@@ -346,12 +345,9 @@ class AlphaFold(hk.Module):
     if self.config.num_recycle:
       emb_config = self.config.embeddings_and_evoformer
       prev = {
-          'prev_pos': jnp.zeros(
-              [num_residues, residue_constants.atom_type_num, 3], dtype=DTYPE),
-          'prev_msa_first_row': jnp.zeros(
-              [num_residues, emb_config.msa_channel], dtype=DTYPE),
-          'prev_pair': jnp.zeros(
-              [num_residues, num_residues, emb_config.pair_channel], dtype=DTYPE),
+          'prev_pos': jnp.zeros([num_residues, residue_constants.atom_type_num, 3], dtype=DTYPE),
+          'prev_msa_first_row': jnp.zeros([num_residues, emb_config.msa_channel], dtype=DTYPE),
+          'prev_pair': jnp.zeros([num_residues, num_residues, emb_config.pair_channel], dtype=DTYPE),
       }
 
       if 'num_iter_recycling' in batch:
